@@ -3,7 +3,7 @@ services:
   onlyoffice-documentserver:
     build:
       context: .
-    container_name: onlyoffice-documentserver
+    container_name: ${DOCUMENT_SERVER_NAME}
     depends_on:
       - onlyoffice-postgresql
       - onlyoffice-rabbitmq
@@ -15,29 +15,52 @@ services:
       - DB_USER=onlyoffice
       - AMQP_URI=amqp://guest:guest@onlyoffice-rabbitmq
       # Uncomment strings below to enable the JSON Web Token validation.
-      #- JWT_ENABLED=true
-      #- JWT_SECRET=secret
-      #- JWT_HEADER=Authorization
-      #- JWT_IN_BODY=true
-    ports:
-      - '80:80'
-      - '443:443'
+      - JWT_ENABLED=true
+      - JWT_SECRET=${DOCUMENT_SERVER_SECRET}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+    expose:
+      - ${DOCUMENT_SERVER_PORT}
     stdin_open: true
     restart: always
     stop_grace_period: 60s
+    networks:
+      - document-server
+      - traefik-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.frontend.rule=Host:${DOCUMENT_SERVER_HOSTNAME}"
+      - "traefik.docker.network=traefik-proxy"
+      - "traefik.protocol=http"
+      - "traefik.port=${DOCUMENT_SERVER_PORT}"
+      - "traefik.frontend.passHostHeader=true"
+      - "traefik.frontend.headers.customRequestHeaders=X-Forwarded-Proto:https"
+      - "traefik.frontend.headers.browserXSSFilter=true"
+      - "traefik.frontend.headers.STSIncludeSubdomains=true"
+      - "traefik.frontend.headers.STSPreload=true"
+      - "traefik.frontend.headers.referrerPolicy=no-referrer"
+      - "traefik.frontend.headers.forceSTSHeader=true"
+      - "traefik.frontend.headers.STSSeconds=315360000"
     volumes:
-       - /var/www/onlyoffice/Data
-       - /var/log/onlyoffice
-       - /var/lib/onlyoffice/documentserver/App_Data/cache/files
-       - /var/www/onlyoffice/documentserver-example/public/files
-       - /usr/share/fonts
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_DATA}:/var/www/onlyoffice/Data
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_LOGS}:/var/log/onlyoffice
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_LIB}:/var/lib/onlyoffice
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_DB}:/var/lib/postgresql
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_RABBITMQ}:/var/lib/rabbitmq
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_REDIS}:/var/lib/redis
        
   onlyoffice-rabbitmq:
     container_name: onlyoffice-rabbitmq
     image: rabbitmq
     restart: always
     expose:
-      - '5672'
+      - 5672
+    volumes:
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_RABBITMQ}:/var/lib/rabbitmq
+    labels:
+      - "traefik.enable=false"
+    networks:
+      - document-server
 
   onlyoffice-postgresql:
     container_name: onlyoffice-postgresql
@@ -48,9 +71,16 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=trust
     restart: always
     expose:
-      - '5432'
+      - 5432
+    labels:
+      - "traefik.enable=false"
     volumes:
-      - postgresql_data:/var/lib/postgresql
+      - ${DOCUMENT_SERVER_ROOT}/${DOCUMENT_SERVER_DB}:/var/lib/postgresql
+    networks:
+      - document-server
 
-volumes:
-  postgresql_data:
+networks:
+  document-server:
+    name: ${DOCUMENT_SERVER_NETWORK}
+  traefik-proxy:
+    external: true
